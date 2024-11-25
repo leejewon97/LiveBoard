@@ -12,20 +12,14 @@ class LoginScreen extends StatelessWidget {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => const RoomListScreen()),
-                );
-              },
-              child: const Text('로그인'),
-            ),
-          ],
+        child: ElevatedButton(
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const RoomListScreen()),
+            );
+          },
+          child: const Text('로그인'),
         ),
       ),
     );
