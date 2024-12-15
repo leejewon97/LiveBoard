@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 
 class Memo {
+  final String id;
   final Offset position;
   String content;
 
-  Memo({required this.position, required this.content});
+  Memo({
+    required this.id,
+    required this.position,
+    required this.content,
+  });
 }
 
 class MemoRoomScreen extends StatefulWidget {
@@ -17,60 +23,117 @@ class MemoRoomScreen extends StatefulWidget {
 }
 
 class _MemoRoomScreenState extends State<MemoRoomScreen> {
+  final ApiService _apiService = ApiService();
   final Map<int, GlobalKey> _memoKeys = {};
-  final List<Memo> memos = [];
+  final Map<int, TextEditingController> _controllers = {};
+  final Map<int, FocusNode> _focusNodes = {};
+  List<Memo> memos = [];
   final _stackKey = GlobalKey();
 
-  void _createMemo(TapDownDetails details) {
+  @override
+  void initState() {
+    super.initState();
+    _loadMemos();
+  }
+
+  Future<void> _loadMemos() async {
+    try {
+      final memoList = await _apiService.getMemosByChannel(widget.roomId);
+      setState(() {
+        memos = memoList
+            .map((memo) => Memo(
+                  id: memo['id'],
+                  position: Offset(
+                    memo['x_position'].toDouble(),
+                    memo['y_position'].toDouble(),
+                  ),
+                  content: memo['message'],
+                ))
+            .toList();
+      });
+    } catch (e) {
+      // 에러 처리
+    }
+  }
+
+  void _createMemo(TapDownDetails details) async {
     final RenderBox stackBox =
         _stackKey.currentContext!.findRenderObject() as RenderBox;
     final localPosition = stackBox.globalToLocal(details.globalPosition);
 
-    setState(() {
-      memos.add(Memo(position: localPosition, content: ''));
-    });
-    _showEditDialog(memos.length - 1);
+    try {
+      final memo = await _apiService.createMemo(
+        channelId: widget.roomId,
+        message: '',
+        xPosition: localPosition.dx.round(),
+        yPosition: localPosition.dy.round(),
+      );
+
+      setState(() {
+        memos.add(Memo(
+          id: memo['id'],
+          position: Offset(
+            memo['x_position'].toDouble(),
+            memo['y_position'].toDouble(),
+          ),
+          content: memo['message'],
+        ));
+      });
+
+      final index = memos.length - 1;
+      _focusNodes[index] ??= FocusNode();
+      _focusNodes[index]?.requestFocus();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('메모 생성에 실패했습니다: $e')),
+        );
+      }
+    }
   }
 
-  void _showEditDialog(int memoIndex) {
-    final controller = TextEditingController(text: memos[memoIndex].content);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('메모 편집'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: '메모 내용을 입력하세요'),
-          autofocus: true,
-          maxLines: null,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                if (controller.text.isEmpty) {
-                  memos.removeAt(memoIndex);
-                } else {
-                  memos[memoIndex].content = controller.text;
-                }
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('저장'),
-          ),
-        ],
-      ),
-    );
+  Future<void> _deleteMemo(int index) async {
+    try {
+      final memo = memos[index];
+      await _apiService.deleteMemo(
+        channelId: widget.roomId,
+        id: memo.id,
+      );
+      setState(() {
+        memos.removeAt(index);
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('메모 삭제에 실패했습니다: $e')),
+        );
+      }
+    }
   }
 
-  void _deleteMemo(int index) {
-    setState(() {
-      memos.removeAt(index);
-    });
+  void _handleMemoChanged(int index) async {
+    final memo = memos[index];
+    final controller = _controllers[index];
+    if (controller == null) return;
+
+    try {
+      await _apiService.updateMemo(
+        channelId: widget.roomId,
+        id: memo.id,
+        message: controller.text,
+        xPosition: memo.position.dx.round(),
+        yPosition: memo.position.dy.round(),
+      );
+      setState(() {
+        memo.content = controller.text;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('메모 수정에 실패했습니다: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -105,30 +168,35 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
                 key: _memoKeys[index],
                 clipBehavior: Clip.none,
                 children: [
-                  GestureDetector(
-                    onTap: () => _showEditDialog(index),
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
-                      constraints: const BoxConstraints(
-                        maxWidth: 200, // 최대 너비 제한
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.yellow.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: IntrinsicWidth(
-                        child: Text(
-                          memo.content,
-                          style: const TextStyle(fontSize: 16),
-                          softWrap: true,
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
+                    constraints: const BoxConstraints(
+                      maxWidth: 200,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.yellow.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
                         ),
+                      ],
+                    ),
+                    child: IntrinsicWidth(
+                      child: TextField(
+                        controller: _controllers[index] ??=
+                            TextEditingController(text: memo.content)
+                              ..addListener(() => _handleMemoChanged(index)),
+                        focusNode: _focusNodes[index] ??= FocusNode(),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        style: const TextStyle(fontSize: 16),
+                        maxLines: null,
                       ),
                     ),
                   ),
@@ -157,6 +225,14 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
 
   @override
   void dispose() {
+    for (var controller in _controllers.values) {
+      controller.dispose();
+    }
+    for (var focusNode in _focusNodes.values) {
+      focusNode.dispose();
+    }
+    _controllers.clear();
+    _focusNodes.clear();
     _memoKeys.clear();
     super.dispose();
   }
