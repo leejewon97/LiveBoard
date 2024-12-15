@@ -19,48 +19,17 @@ class MemoRoomScreen extends StatefulWidget {
 class _MemoRoomScreenState extends State<MemoRoomScreen> {
   final Map<int, GlobalKey> _memoKeys = {};
   final List<Memo> memos = [];
+  final _stackKey = GlobalKey();
 
-  void _handleTapDown(TapDownDetails details) {
-    final RenderBox renderBox = context.findRenderObject() as RenderBox;
-    final localPosition = renderBox.globalToLocal(details.globalPosition);
+  void _createMemo(TapDownDetails details) {
+    final RenderBox stackBox =
+        _stackKey.currentContext!.findRenderObject() as RenderBox;
+    final localPosition = stackBox.globalToLocal(details.globalPosition);
 
-    // 탭한 위치에 이미 메모가 있는지 확인
-    final existingMemoIndex = _findMemoAtPosition(localPosition);
-
-    if (existingMemoIndex == -1) {
-      // 새 메모 생성
-      setState(() {
-        memos.add(Memo(position: localPosition, content: ''));
-      });
-      _showEditDialog(memos.length - 1);
-    } else {
-      // 기존 메모 수정
-      _showEditDialog(existingMemoIndex);
-    }
-  }
-
-  int _findMemoAtPosition(Offset tapPosition) {
-    for (int i = 0; i < memos.length; i++) {
-      final key = _memoKeys[i];
-      if (key?.currentContext == null) continue;
-
-      final RenderBox renderBox =
-          key!.currentContext!.findRenderObject() as RenderBox;
-      final Size size = renderBox.size;
-      final Offset memoPosition = renderBox.localToGlobal(Offset.zero);
-
-      final memoRect = Rect.fromLTWH(
-        memoPosition.dx,
-        memoPosition.dy,
-        size.width,
-        size.height,
-      );
-
-      if (memoRect.contains(tapPosition)) {
-        return i;
-      }
-    }
-    return -1;
+    setState(() {
+      memos.add(Memo(position: localPosition, content: ''));
+    });
+    _showEditDialog(memos.length - 1);
   }
 
   void _showEditDialog(int memoIndex) {
@@ -112,10 +81,11 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Stack(
+        key: _stackKey,
         children: [
           // 배경과 새 메모 생성을 위한 GestureDetector
           GestureDetector(
-            onTapDown: _handleTapDown,
+            onTapDown: _createMemo,
             child: Container(
               color: Colors.white,
               width: double.infinity,
@@ -136,7 +106,7 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
                 clipBehavior: Clip.none,
                 children: [
                   GestureDetector(
-                    onTapDown: _handleTapDown,
+                    onTap: () => _showEditDialog(index),
                     child: Container(
                       padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
                       constraints: const BoxConstraints(
