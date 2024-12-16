@@ -62,6 +62,9 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         _stackKey.currentContext!.findRenderObject() as RenderBox;
     final localPosition = stackBox.globalToLocal(details.globalPosition);
 
+    final newIndex = memos.length;
+    final focusNode = FocusNode();
+
     try {
       final memo = await _apiService.createMemo(
         channelId: widget.roomId,
@@ -81,10 +84,12 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         ));
       });
 
-      final index = memos.length - 1;
-      _focusNodes[index] ??= FocusNode();
-      _focusNodes[index]?.requestFocus();
+      _focusNodes[newIndex] = focusNode;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _focusNodes[newIndex]?.requestFocus();
+      });
     } catch (e) {
+      focusNode.dispose();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('메모 생성에 실패했습니다: $e')),
@@ -100,9 +105,37 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         channelId: widget.roomId,
         id: memo.id,
       );
+
+      for (var focusNode in _focusNodes.values) {
+        focusNode.unfocus();
+      }
+
+      // 컨트롤러와 FocusNode 정리
+      _controllers[index]?.dispose();
+      _focusNodes[index]?.dispose();
+      _controllers.remove(index);
+      _focusNodes.remove(index);
+      _memoKeys.remove(index);
+
       setState(() {
         memos.removeAt(index);
       });
+
+      // 삭제된 메모 이후의 컨트롤러와 FocusNode 인덱스 조정
+      for (var i = index; i < memos.length; i++) {
+        if (_controllers.containsKey(i + 1)) {
+          _controllers[i] = _controllers[i + 1]!;
+          _controllers.remove(i + 1);
+        }
+        if (_focusNodes.containsKey(i + 1)) {
+          _focusNodes[i] = _focusNodes[i + 1]!;
+          _focusNodes.remove(i + 1);
+        }
+        if (_memoKeys.containsKey(i + 1)) {
+          _memoKeys[i] = _memoKeys[i + 1]!;
+          _memoKeys.remove(i + 1);
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -193,6 +226,11 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
               left: memo.position.dx,
               top: memo.position.dy,
               child: Draggable(
+                onDragStarted: () {
+                  for (var focusNode in _focusNodes.values) {
+                    focusNode.unfocus();
+                  }
+                },
                 feedback: Material(
                   elevation: 4,
                   borderRadius: const BorderRadius.only(
