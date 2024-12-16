@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../widgets/memo_box.dart';
 
 class Memo {
   final String id;
@@ -111,29 +112,56 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     }
   }
 
+  Future<void> _updateMemo({
+    required String id,
+    required String content,
+    required Offset position,
+    required int index,
+  }) async {
+    // 현재 메모 상태 저장
+    final originalMemo = memos[index];
+
+    // 즉시 UI 업데이트 (낙관적 업데이트)
+    setState(() {
+      memos[index] = Memo(
+        id: id,
+        position: position,
+        content: content,
+      );
+    });
+
+    try {
+      await _apiService.updateMemo(
+        channelId: widget.roomId,
+        id: id,
+        message: content,
+        xPosition: position.dx.round(),
+        yPosition: position.dy.round(),
+      );
+    } catch (e) {
+      // 실패시 원래 상태로 복구
+      if (mounted) {
+        setState(() {
+          memos[index] = originalMemo;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('메모 수정에 실패했습니다')),
+        );
+      }
+    }
+  }
+
   void _handleMemoChanged(int index) async {
     final memo = memos[index];
     final controller = _controllers[index];
     if (controller == null) return;
 
-    try {
-      await _apiService.updateMemo(
-        channelId: widget.roomId,
-        id: memo.id,
-        message: controller.text,
-        xPosition: memo.position.dx.round(),
-        yPosition: memo.position.dy.round(),
-      );
-      setState(() {
-        memo.content = controller.text;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('메모 수정에 실패했습니다: $e')),
-        );
-      }
-    }
+    await _updateMemo(
+      id: memo.id,
+      content: controller.text,
+      position: memo.position,
+      index: index,
+    );
   }
 
   @override
@@ -164,57 +192,68 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
             return Positioned(
               left: memo.position.dx,
               top: memo.position.dy,
-              child: Stack(
-                key: _memoKeys[index],
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
-                    constraints: const BoxConstraints(
-                      maxWidth: 200,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.yellow.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
+              child: Draggable(
+                feedback: Material(
+                  elevation: 4,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomRight: Radius.circular(12),
+                  ),
+                  child: MemoBox(
+                    content: memo.content,
+                  ),
+                ),
+                childWhenDragging: Container(),
+                onDragEnd: (details) async {
+                  final RenderBox stackBox =
+                      _stackKey.currentContext!.findRenderObject() as RenderBox;
+                  final localPosition = stackBox.globalToLocal(details.offset);
+
+                  await _updateMemo(
+                    id: memo.id,
+                    content: memo.content,
+                    position: localPosition,
+                    index: index,
+                  );
+                },
+                child: Stack(
+                  key: _memoKeys[index],
+                  clipBehavior: Clip.none,
+                  children: [
+                    MemoBox(
+                      content: memo.content,
+                      child: IntrinsicWidth(
+                        child: TextField(
+                          controller: _controllers[index] ??=
+                              TextEditingController(text: memo.content)
+                                ..addListener(() => _handleMemoChanged(index)),
+                          focusNode: _focusNodes[index] ??= FocusNode(),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          style: const TextStyle(fontSize: 16),
+                          maxLines: null,
                         ),
-                      ],
-                    ),
-                    child: IntrinsicWidth(
-                      child: TextField(
-                        controller: _controllers[index] ??=
-                            TextEditingController(text: memo.content)
-                              ..addListener(() => _handleMemoChanged(index)),
-                        focusNode: _focusNodes[index] ??= FocusNode(),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        style: const TextStyle(fontSize: 16),
-                        maxLines: null,
                       ),
                     ),
-                  ),
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: GestureDetector(
-                      onTap: () => _deleteMemo(index),
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        width: 24,
-                        height: 24,
-                        color: Colors.black12,
-                        child: const Icon(Icons.close, size: 16),
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: GestureDetector(
+                        onTap: () => _deleteMemo(index),
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          color: Colors.black12,
+                          child: const Icon(Icons.close, size: 16),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             );
           }),
