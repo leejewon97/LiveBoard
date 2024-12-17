@@ -81,7 +81,12 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
             .toList();
       });
     } catch (e) {
-      // 에러 처리
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('메모를 불러오는데 실패했습니다: $e')),
+        );
+      }
+      Logger().e('[LiveBoard] 메모 로딩 실패', error: e);
     }
   }
 
@@ -201,12 +206,10 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     // 이전 타이머가 있다면 취소
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    // 새로운 타이머 시작 (500ms 후에 실행)
+    final memo = memos[index];
+    final controller = _controllers[index];
+    if (controller == null || memo.content == controller.text) return;
     _debounce = Timer(const Duration(milliseconds: 500), () async {
-      final memo = memos[index];
-      final controller = _controllers[index];
-      if (controller == null) return;
-
       await _updateMemo(
         id: memo.id,
         content: controller.text,
@@ -249,6 +252,7 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         ),
         content: memo['message'],
       );
+      _controllers[index]?.text = memo['message'];
     });
     Logger().i('[LiveBoard] 메모가 수정됨: ${memo['message']}');
   }
