@@ -85,7 +85,7 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     }
   }
 
-  void _createMemo(TapDownDetails details) async {
+  Future<void> _createMemo(TapDownDetails details) async {
     final RenderBox stackBox =
         _stackKey.currentContext!.findRenderObject() as RenderBox;
     final localPosition = stackBox.globalToLocal(details.globalPosition);
@@ -94,14 +94,12 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     final focusNode = FocusNode();
 
     try {
-      final memo = await _apiService.createMemo(
+      await _apiService.createMemo(
         channelId: widget.roomId,
         message: '',
         xPosition: localPosition.dx.round(),
         yPosition: localPosition.dy.round(),
       );
-
-      _handleRemoteMemoCreated(memo);
 
       _focusNodes[newIndex] = focusNode;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -120,12 +118,10 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
   Future<void> _deleteMemo(int index) async {
     try {
       final memo = memos[index];
-      final deletedMemo = await _apiService.deleteMemo(
+      await _apiService.deleteMemo(
         channelId: widget.roomId,
         id: memo.id,
       );
-
-      _handleRemoteMemoDeleted(deletedMemo);
 
       for (var focusNode in _focusNodes.values) {
         focusNode.unfocus();
@@ -171,16 +167,23 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     // 현재 메모 상태 저장
     final originalMemo = memos[index];
 
+    // 즉시 UI 업데이트 (낙관적 업데이트)
+    setState(() {
+      memos[index] = Memo(
+        id: id,
+        position: position,
+        content: content,
+      );
+    });
+
     try {
-      final updatedMemo = await _apiService.updateMemo(
+      await _apiService.updateMemo(
         channelId: widget.roomId,
         id: id,
         message: content,
         xPosition: position.dx.round(),
         yPosition: position.dy.round(),
       );
-
-      _handleRemoteMemoUpdated(updatedMemo);
     } catch (e) {
       // 실패시 원래 상태로 복구
       if (mounted) {
