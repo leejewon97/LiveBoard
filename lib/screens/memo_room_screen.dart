@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
 import '../services/api_service.dart';
+import '../services/websocket_service.dart';
 import '../widgets/memo_box.dart';
+import 'dart:async'; // Timer를 위해 추가
 
 class Memo {
   final String id;
@@ -25,16 +28,41 @@ class MemoRoomScreen extends StatefulWidget {
 
 class _MemoRoomScreenState extends State<MemoRoomScreen> {
   final ApiService _apiService = ApiService();
+  final WebSocketService _webSocketService = WebSocketService();
   final Map<int, GlobalKey> _memoKeys = {};
   final Map<int, TextEditingController> _controllers = {};
   final Map<int, FocusNode> _focusNodes = {};
   List<Memo> memos = [];
   final _stackKey = GlobalKey();
+  Timer? _debounce; // 디바운스를 위한 Timer 추가
 
   @override
   void initState() {
     super.initState();
     _loadMemos();
+    _initializeWebSocket();
+  }
+
+  void _initializeWebSocket() {
+    Logger().i('[LiveBoard] WebSocket 초기화 시작: 채널 ID ${widget.roomId}');
+
+    _webSocketService.onMemoCreated = (memo) {
+      Logger().i('[LiveBoard] WebSocket: 메모 생성 이벤트 수신', error: memo);
+      _handleRemoteMemoCreated(memo);
+    };
+
+    _webSocketService.onMemoUpdated = (memo) {
+      Logger().i('[LiveBoard] WebSocket: 메모 수정 이벤트 수신', error: memo);
+      _handleRemoteMemoUpdated(memo);
+    };
+
+    _webSocketService.onMemoDeleted = (memo) {
+      Logger().i('[LiveBoard] WebSocket: 메모 삭제 이벤트 수신', error: memo);
+      _handleRemoteMemoDeleted(memo);
+    };
+
+    _webSocketService.connect(widget.roomId);
+    Logger().i('[LiveBoard] WebSocket 연결 시도 완료');
   }
 
   Future<void> _loadMemos() async {
@@ -73,16 +101,7 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         yPosition: localPosition.dy.round(),
       );
 
-      setState(() {
-        memos.add(Memo(
-          id: memo['id'],
-          position: Offset(
-            memo['x_position'].toDouble(),
-            memo['y_position'].toDouble(),
-          ),
-          content: memo['message'],
-        ));
-      });
+      _handleRemoteMemoCreated(memo);
 
       _focusNodes[newIndex] = focusNode;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -101,10 +120,12 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
   Future<void> _deleteMemo(int index) async {
     try {
       final memo = memos[index];
-      await _apiService.deleteMemo(
+      final deletedMemo = await _apiService.deleteMemo(
         channelId: widget.roomId,
         id: memo.id,
       );
+
+      _handleRemoteMemoDeleted(deletedMemo);
 
       for (var focusNode in _focusNodes.values) {
         focusNode.unfocus();
@@ -116,10 +137,6 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
       _controllers.remove(index);
       _focusNodes.remove(index);
       _memoKeys.remove(index);
-
-      setState(() {
-        memos.removeAt(index);
-      });
 
       // 삭제된 메모 이후의 컨트롤러와 FocusNode 인덱스 조정
       for (var i = index; i < memos.length; i++) {
@@ -154,23 +171,16 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     // 현재 메모 상태 저장
     final originalMemo = memos[index];
 
-    // 즉시 UI 업데이트 (낙관적 업데이트)
-    setState(() {
-      memos[index] = Memo(
-        id: id,
-        position: position,
-        content: content,
-      );
-    });
-
     try {
-      await _apiService.updateMemo(
+      final updatedMemo = await _apiService.updateMemo(
         channelId: widget.roomId,
         id: id,
         message: content,
         xPosition: position.dx.round(),
         yPosition: position.dy.round(),
       );
+
+      _handleRemoteMemoUpdated(updatedMemo);
     } catch (e) {
       // 실패시 원래 상태로 복구
       if (mounted) {
@@ -184,17 +194,73 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     }
   }
 
-  void _handleMemoChanged(int index) async {
-    final memo = memos[index];
-    final controller = _controllers[index];
-    if (controller == null) return;
+  void _handleMemoChanged(int index) {
+    // 이전 타이머가 있다면 취소
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-    await _updateMemo(
-      id: memo.id,
-      content: controller.text,
-      position: memo.position,
-      index: index,
-    );
+    // 새로운 타이머 시작 (500ms 후에 실행)
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      final memo = memos[index];
+      final controller = _controllers[index];
+      if (controller == null) return;
+
+      await _updateMemo(
+        id: memo.id,
+        content: controller.text,
+        position: memo.position,
+        index: index,
+      );
+    });
+  }
+
+  // 다른 사용자가 메모를 생성했을 때
+  void _handleRemoteMemoCreated(Map<String, dynamic> memo) {
+    if (memo['channelId'] != widget.roomId) return;
+
+    setState(() {
+      memos.add(Memo(
+        id: memo['id'],
+        position: Offset(
+          memo['x_position'].toDouble(),
+          memo['y_position'].toDouble(),
+        ),
+        content: memo['message'],
+      ));
+    });
+    Logger().i('[LiveBoard] 새 메모가 추가됨: ${memo['message']}');
+  }
+
+  // 다른 사용자가 메모를 수정했을 때
+  void _handleRemoteMemoUpdated(Map<String, dynamic> memo) {
+    if (memo['channelId'] != widget.roomId) return;
+
+    final index = memos.indexWhere((m) => m.id == memo['id']);
+    if (index == -1) return;
+
+    setState(() {
+      memos[index] = Memo(
+        id: memo['id'],
+        position: Offset(
+          memo['x_position'].toDouble(),
+          memo['y_position'].toDouble(),
+        ),
+        content: memo['message'],
+      );
+    });
+    Logger().i('[LiveBoard] 메모가 수정됨: ${memo['message']}');
+  }
+
+  // 다른 사용자가 메모를 삭제했을 때
+  void _handleRemoteMemoDeleted(Map<String, dynamic> memo) {
+    if (memo['channelId'] != widget.roomId) return;
+
+    final index = memos.indexWhere((m) => m.id == memo['id']);
+    if (index == -1) return;
+
+    setState(() {
+      memos.removeAt(index);
+    });
+    Logger().i('[LiveBoard] 메모가 삭제됨: ${memo['id']}');
   }
 
   @override
@@ -302,6 +368,8 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
 
   @override
   void dispose() {
+    _debounce?.cancel(); // 타이머 정리
+    _webSocketService.dispose();
     for (var controller in _controllers.values) {
       controller.dispose();
     }
