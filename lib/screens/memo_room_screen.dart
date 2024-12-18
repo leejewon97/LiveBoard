@@ -278,96 +278,113 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         title: Text('방 ${widget.roomId}'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
-      body: Stack(
-        key: _stackKey,
-        children: [
-          // 배경과 새 메모 생성을 위한 GestureDetector
-          GestureDetector(
-            onTapDown: _createMemo,
-            child: Container(
-              color: Colors.white,
-              width: double.infinity,
-              height: double.infinity,
+      body: InteractiveViewer(
+        minScale: 0.3,
+        maxScale: 2.0,
+        constrained: false,
+        child: Container(
+          width: 5000,
+          height: 3000,
+          margin: const EdgeInsets.all(10.0),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Theme.of(context).colorScheme.inversePrimary,
+              width: 4.0,
             ),
           ),
-          // 기존 메모들
-          ...memos.asMap().entries.map((entry) {
-            final index = entry.key;
-            final memo = entry.value;
-            return Positioned(
-              left: memo.position.dx,
-              top: memo.position.dy,
-              child: Draggable(
-                onDragStarted: () {
-                  for (var focusNode in _focusNodes.values) {
-                    focusNode.unfocus();
-                  }
-                },
-                feedback: Material(
-                  elevation: 4,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                  child: MemoBox(
-                    content: memo.content,
-                  ),
-                ),
-                childWhenDragging: Container(),
-                onDragEnd: (details) async {
-                  final RenderBox stackBox =
-                      _stackKey.currentContext!.findRenderObject() as RenderBox;
-                  final localPosition = stackBox.globalToLocal(details.offset);
-
-                  await _updateMemo(
-                    id: memo.id,
-                    content: memo.content,
-                    position: localPosition,
-                    index: index,
-                  );
-                },
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    MemoBox(
-                      content: memo.content,
-                      child: IntrinsicWidth(
-                        child: TextField(
-                          controller: _controllers[index] ??=
-                              TextEditingController(text: memo.content)
-                                ..addListener(
-                                    () => _handleMemoTextUpdated(index)),
-                          focusNode: _focusNodes[index] ??= FocusNode(),
-                          decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          style: const TextStyle(fontSize: 16),
-                          maxLines: null,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: GestureDetector(
-                        onTap: () => _deleteMemo(index),
-                        behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          color: Colors.black12,
-                          child: const Icon(Icons.close, size: 16),
-                        ),
-                      ),
-                    ),
-                  ],
+          child: Stack(
+            key: _stackKey,
+            children: [
+              // 배경과 새 메모 생성을 위한 GestureDetector
+              GestureDetector(
+                onTapDown: _createMemo,
+                child: Container(
+                  color: Colors.white,
+                  width: double.infinity,
+                  height: double.infinity,
                 ),
               ),
-            );
-          }),
-        ],
+              // 기존 메모들
+              ...memos.asMap().entries.map((entry) {
+                final index = entry.key;
+                final memo = entry.value;
+                return Positioned(
+                  left: memo.position.dx,
+                  top: memo.position.dy,
+                  child: Draggable(
+                    onDragStarted: () {
+                      for (var focusNode in _focusNodes.values) {
+                        focusNode.unfocus();
+                      }
+                    },
+                    feedback: Material(
+                      elevation: 4,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        bottomRight: Radius.circular(12),
+                      ),
+                      child: MemoBox(
+                        content: memo.content,
+                      ),
+                    ),
+                    childWhenDragging: Container(),
+                    onDragEnd: (details) async {
+                      final RenderBox stackBox = _stackKey.currentContext!
+                          .findRenderObject() as RenderBox;
+                      final localPosition =
+                          stackBox.globalToLocal(details.offset);
+
+                      await _updateMemo(
+                        id: memo.id,
+                        content: memo.content,
+                        position: localPosition,
+                        index: index,
+                      );
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        MemoBox(
+                          content: memo.content,
+                          child: IntrinsicWidth(
+                            child: TextField(
+                              controller: _controllers[index] ??=
+                                  TextEditingController(text: memo.content)
+                                    ..addListener(
+                                        () => _handleMemoTextUpdated(index)),
+                              focusNode: _focusNodes[index] ??= FocusNode(),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              style: const TextStyle(fontSize: 16),
+                              maxLines: null,
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: GestureDetector(
+                            onTap: () => _deleteMemo(index),
+                            behavior: HitTestBehavior.opaque,
+                            child: Container(
+                              width: 24,
+                              height: 24,
+                              color: Colors.black12,
+                              child: const Icon(Icons.close, size: 16),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
       ),
     );
   }
