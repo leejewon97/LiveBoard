@@ -68,12 +68,12 @@ class WebSocketService {
             }
           }
         },
-        onError: (error) =>
-            Logger().e('[LiveBoard] WebSocket 에러', error: error),
+        onError: (error) {
+          Logger().e('[LiveBoard] WebSocket 에러', error: error);
+          Future.delayed(const Duration(seconds: 3), () => connect(channelId));
+        },
         onDone: () {
           Logger().i('[LiveBoard] WebSocket 연결 종료');
-          // 재연결 시도
-          connect(channelId);
         },
       );
 
