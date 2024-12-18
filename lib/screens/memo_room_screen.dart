@@ -90,12 +90,34 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
   }
 
   Future<void> _createMemo(TapDownDetails details) async {
+    // 현재 활성화된 포커스가 있는지 확인
+    bool hasActiveFocus = _focusNodes.values.any((node) => node.hasFocus);
+
+    // 활성화된 포커스가 있다면, 모든 포커스를 해제하고 리턴
+    if (hasActiveFocus) {
+      for (var focusNode in _focusNodes.values) {
+        focusNode.unfocus();
+      }
+      return;
+    }
+
     final RenderBox stackBox =
         _stackKey.currentContext!.findRenderObject() as RenderBox;
     final localPosition = stackBox.globalToLocal(details.globalPosition);
 
     final newIndex = memos.length;
     final focusNode = FocusNode();
+
+    // 리스너는 focusNode 생성 후에 추가
+    focusNode.addListener(() {
+      if (!focusNode.hasFocus) {
+        if (_controllers[newIndex]?.text.trim().isEmpty ?? true) {
+          _deleteMemo(newIndex);
+        }
+      }
+    });
+
+    _focusNodes[newIndex] = focusNode;
 
     try {
       await _apiService.createMemo(
@@ -105,7 +127,6 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         yPosition: localPosition.dy.round(),
       );
 
-      _focusNodes[newIndex] = focusNode;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _focusNodes[newIndex]?.requestFocus();
       });
@@ -265,7 +286,19 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
         _controllers.remove(i + 1);
       }
       if (_focusNodes.containsKey(i + 1)) {
-        _focusNodes[i] = _focusNodes[i + 1]!;
+        final oldFocusNode = _focusNodes[i + 1]!;
+        oldFocusNode.dispose();
+
+        final newFocusNode = FocusNode();
+        newFocusNode.addListener(() {
+          if (!newFocusNode.hasFocus) {
+            if (_controllers[i]?.text.trim().isEmpty ?? true) {
+              _deleteMemo(i);
+            }
+          }
+        });
+
+        _focusNodes[i] = newFocusNode;
         _focusNodes.remove(i + 1);
       }
     }
@@ -352,7 +385,20 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
                                   TextEditingController(text: memo.content)
                                     ..addListener(
                                         () => _handleMemoTextUpdated(index)),
-                              focusNode: _focusNodes[index] ??= FocusNode(),
+                              focusNode: _focusNodes[index] ??= FocusNode()
+                                ..addListener(() {
+                                  // 포커스가 해제될 때
+                                  if (!_focusNodes[index]!.hasFocus) {
+                                    // 메모가 비어있다면 삭제
+                                    if (_controllers[index]
+                                            ?.text
+                                            .trim()
+                                            .isEmpty ??
+                                        true) {
+                                      _deleteMemo(index);
+                                    }
+                                  }
+                                }),
                               decoration: const InputDecoration(
                                 border: InputBorder.none,
                                 isDense: true,
