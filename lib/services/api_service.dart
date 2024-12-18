@@ -1,9 +1,10 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../config/env.dart';
 
 class ApiService {
-  static const String _baseUrl = 'https://REMOVED_HOST/graphql';
-  static const String _apiKey = 'REMOVED_API_KEY';
+  static const String _baseUrl = Env.apiUrl;
+  static const String _apiKey = Env.apiKey;
 
   Future<dynamic> _query(String query,
       {Map<String, dynamic>? variables}) async {

@@ -2,11 +2,12 @@ import 'dart:io';
 import 'package:web_socket_channel/io.dart';
 import 'dart:convert';
 import 'package:logger/logger.dart';
+import '../config/env.dart';
 
 class WebSocketService {
-  static const String _host = 'REMOVED_HOST';
-  static const String _wsUrl = 'wss://REMOVED_HOST/graphql/realtime';
-  static const String _apiKey = 'REMOVED_API_KEY';
+  static const String _host = Env.apiHost;
+  static const String _wsUrl = Env.wsUrl;
+  static const String _apiKey = Env.apiKey;
   IOWebSocketChannel? _channel;
 
   // 콜백 함수들
