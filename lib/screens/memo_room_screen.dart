@@ -29,7 +29,6 @@ class MemoRoomScreen extends StatefulWidget {
 class _MemoRoomScreenState extends State<MemoRoomScreen> {
   final ApiService _apiService = ApiService();
   final WebSocketService _webSocketService = WebSocketService();
-  final Map<int, GlobalKey> _memoKeys = {};
   final Map<int, TextEditingController> _controllers = {};
   final Map<int, FocusNode> _focusNodes = {};
   List<Memo> memos = [];
@@ -123,37 +122,12 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
   Future<void> _deleteMemo(int index) async {
     try {
       final memo = memos[index];
+
+      // 컨트롤러와 FocusNode 정리는 WebSocket 이벤트 수신 후에 하도록 변경
       await _apiService.deleteMemo(
         channelId: widget.roomId,
         id: memo.id,
       );
-
-      for (var focusNode in _focusNodes.values) {
-        focusNode.unfocus();
-      }
-
-      // 컨트롤러와 FocusNode 정리
-      _controllers[index]?.dispose();
-      _focusNodes[index]?.dispose();
-      _controllers.remove(index);
-      _focusNodes.remove(index);
-      _memoKeys.remove(index);
-
-      // 삭제된 메모 이후의 컨트롤러와 FocusNode 인덱스 조정
-      for (var i = index; i < memos.length; i++) {
-        if (_controllers.containsKey(i + 1)) {
-          _controllers[i] = _controllers[i + 1]!;
-          _controllers.remove(i + 1);
-        }
-        if (_focusNodes.containsKey(i + 1)) {
-          _focusNodes[i] = _focusNodes[i + 1]!;
-          _focusNodes.remove(i + 1);
-        }
-        if (_memoKeys.containsKey(i + 1)) {
-          _memoKeys[i] = _memoKeys[i + 1]!;
-          _memoKeys.remove(i + 1);
-        }
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -202,7 +176,7 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     }
   }
 
-  void _handleMemoChanged(int index) {
+  void _handleMemoTextUpdated(int index) {
     // 이전 타이머가 있다면 취소
     if (_debounce?.isActive ?? false) _debounce!.cancel();
 
@@ -264,10 +238,37 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     final index = memos.indexWhere((m) => m.id == memo['id']);
     if (index == -1) return;
 
+    // 포커스 제거
+    for (var focusNode in _focusNodes.values) {
+      focusNode.unfocus();
+    }
+
+    // 컨트롤러와 FocusNode 정리
+    _controllers[index]?.dispose();
+    _focusNodes[index]?.dispose();
+    _controllers.remove(index);
+    _focusNodes.remove(index);
+
     setState(() {
       memos.removeAt(index);
     });
-    Logger().i('[LiveBoard] 메모가 삭제됨: ${memo['id']}');
+
+    // 삭제된 메모 이후의 컨트롤러와 FocusNode 인덱스 조정
+    for (var i = index; i < memos.length; i++) {
+      if (_controllers.containsKey(i + 1)) {
+        final oldController = _controllers[i + 1]!;
+        final text = oldController.text;
+        oldController.dispose(); // 이전 컨트롤러 정리
+
+        _controllers[i] = TextEditingController(text: text)
+          ..addListener(() => _handleMemoTextUpdated(i));
+        _controllers.remove(i + 1);
+      }
+      if (_focusNodes.containsKey(i + 1)) {
+        _focusNodes[i] = _focusNodes[i + 1]!;
+        _focusNodes.remove(i + 1);
+      }
+    }
   }
 
   @override
@@ -293,8 +294,6 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
           ...memos.asMap().entries.map((entry) {
             final index = entry.key;
             final memo = entry.value;
-            _memoKeys[index] ??= GlobalKey();
-
             return Positioned(
               left: memo.position.dx,
               top: memo.position.dy,
@@ -328,7 +327,6 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
                   );
                 },
                 child: Stack(
-                  key: _memoKeys[index],
                   clipBehavior: Clip.none,
                   children: [
                     MemoBox(
@@ -337,7 +335,8 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
                         child: TextField(
                           controller: _controllers[index] ??=
                               TextEditingController(text: memo.content)
-                                ..addListener(() => _handleMemoChanged(index)),
+                                ..addListener(
+                                    () => _handleMemoTextUpdated(index)),
                           focusNode: _focusNodes[index] ??= FocusNode(),
                           decoration: const InputDecoration(
                             border: InputBorder.none,
@@ -385,7 +384,6 @@ class _MemoRoomScreenState extends State<MemoRoomScreen> {
     }
     _controllers.clear();
     _focusNodes.clear();
-    _memoKeys.clear();
     super.dispose();
   }
 }
